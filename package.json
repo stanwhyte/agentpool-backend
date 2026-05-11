@@ -1,0 +1,33 @@
+{
+  "name": "agentpool-backend",
+  "version": "1.0.0",
+  "description": "AgentPool secure API backend — proxy for all AI providers",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start":   "node src/index.js",
+    "dev":     "node --watch src/index.js",
+    "lint":    "eslint src/",
+    "test":    "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "dependencies": {
+    "express":          "^4.19.2",
+    "cors":             "^2.8.5",
+    "dotenv":           "^16.4.5",
+    "jsonwebtoken":     "^9.0.2",
+    "bcryptjs":         "^2.4.3",
+    "express-rate-limit":"^7.3.1",
+    "helmet":           "^7.1.0",
+    "morgan":           "^1.10.0",
+    "winston":          "^3.13.0",
+    "uuid":             "^10.0.0",
+    "node-fetch":       "^3.3.2"
+  },
+  "devDependencies": {
+    "eslint":           "^9.5.0",
+    "jest":             "^29.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
