@@ -2,7 +2,10 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import Login from './Login.jsx'
 import SkillsTab from './SkillsTab.jsx'
 import ConfigTab from './ConfigTab.jsx'
-import { isLoggedIn, getUser, logout, streamAgent, sendNotification, loadSkills, saveSkills, loadSettings, saveSettings } from './api.js'
+import { isLoggedIn, getUser, logout, streamAgent, sendNotification, loadSkills, saveSkills, loadSettings, saveSettings, saveSession, loadMemory, saveMemoryEntries } from './api.js'
+import SessionsTab  from './SessionsTab.jsx'
+import MemoryTab    from './MemoryTab.jsx'
+import LocalLLMConfig from './LocalLLMConfig.jsx'
 
 const MODELS = {
   'claude-sonnet-4-20250514':  { label: 'Claude Sonnet 4', costIn: 3.00,  costOut: 15.00, free: false },
@@ -123,7 +126,82 @@ SECURITY BASELINE:
 - Master key stored separately from data key
 - Key rotation: 90-day schedule, zero-downtime
 - All access logged: who, what, when, from where (SOC 2 CC6)
-- Rate limiting per workload identity`
+- Rate limiting per workload identity.sessions-page{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.sessions-layout{display:flex;flex:1;overflow:hidden}
+.sessions-list{width:320px;flex-shrink:0;border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
+.sessions-list-hdr{padding:16px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.sess-loading{padding:16px;color:var(--td);font-size:11px}
+.sess-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px;color:var(--td);font-size:11px;text-align:center}
+.sess-item{padding:10px 14px;border-bottom:1px solid var(--bd);cursor:pointer;transition:background .15s}
+.sess-item:hover{background:rgba(255,255,255,.02)}
+.sess-item.active{background:rgba(0,212,255,.05);border-left:2px solid #00d4ff}
+.sess-item-req{font-size:10px;color:var(--tb);margin-bottom:5px;line-height:1.4}
+.sess-item-meta{display:flex;align-items:center;gap:8px;font-size:8px}
+.sess-del{background:transparent;border:none;color:var(--td);cursor:pointer;margin-left:auto;font-size:10px;padding:1px 4px}
+.sess-del:hover{color:#ff4560}
+.sessions-detail{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--bd) transparent}
+.sess-detail-content{padding:16px;display:flex;flex-direction:column;gap:16px}
+.sess-detail-hdr{border-bottom:1px solid var(--bd);padding-bottom:12px}
+.sess-detail-req{font-family:var(--disp);font-size:13px;font-weight:700;color:var(--tb);margin-bottom:6px}
+.sess-detail-meta{display:flex;gap:10px;font-size:9px}
+.sess-section{display:flex;flex-direction:column;gap:8px}
+.sess-section-title{font-family:var(--disp);font-size:10px;font-weight:700;color:var(--tb);text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px}
+.sess-agents{display:flex;flex-direction:column;gap:4px}
+.so-agent{border:1px solid var(--bd);overflow:hidden}
+.so-agent-hdr{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;background:var(--s1);transition:background .15s}
+.so-agent-hdr:hover{background:rgba(255,255,255,.02)}
+.so-agent-name{font-family:var(--disp);font-size:10px;font-weight:700;color:var(--tb);flex:1}
+.so-agent-words{font-size:8px;color:var(--td)}
+.so-chev{font-size:9px;color:var(--td);margin-left:4px}
+.so-agent-body{padding:10px;border-top:1px solid var(--bd);background:var(--bg);max-height:400px;overflow-y:auto}
+.memory-page{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.memory-layout{display:flex;flex:1;overflow:hidden}
+.memory-sidebar{width:240px;flex-shrink:0;border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow-y:auto}
+.memory-sidebar-hdr{padding:16px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.mem-agent-row{display:flex;align-items:center;gap:8px;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--bd);transition:background .15s}
+.mem-agent-row:hover{background:rgba(255,255,255,.02)}
+.mem-agent-row.active{background:rgba(0,212,255,.05);border-left:2px solid var(--ac,#00d4ff)}
+.mem-agent-meta{flex:1}
+.mem-agent-name{font-family:var(--disp);font-size:10px;font-weight:700;color:var(--tb)}
+.mem-agent-count{font-size:8px;color:var(--td)}
+.mem-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.memory-detail{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--bd) transparent}
+.memory-detail-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.mem-add-form{padding:12px 16px;border-bottom:1px solid var(--bd);background:var(--s1)}
+.mem-entries{padding:10px;display:flex;flex-direction:column;gap:6px}
+.mem-entry{border:1px solid var(--bd);border-left:2px solid var(--mc,#00d4ff);padding:8px 10px}
+.mem-entry-hdr{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.mem-entry-type{font-size:7px;padding:1px 5px;border:1px solid;text-transform:uppercase;letter-spacing:1px}
+.mem-entry-ts{font-size:8px;color:var(--td)}
+.mem-entry-session{font-size:7px;color:var(--td);border:1px solid var(--bd);padding:0 4px}
+.mem-del{background:transparent;border:none;color:var(--td);cursor:pointer;font-size:9px;margin-left:auto;padding:1px 4px}
+.mem-del:hover{color:#ff4560}
+.mem-entry-content{font-size:10px;color:var(--t);line-height:1.6;white-space:pre-wrap}
+.mem-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:5px}
+.mem-tag{font-size:7px;padding:1px 5px;border:1px solid var(--bd);color:var(--td)}
+.llm-config{background:var(--s1);border:1px solid var(--bd);border-left:2px solid #00ffcc;padding:16px;margin-bottom:16px}
+.llm-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:0}
+.llm-title{font-family:var(--disp);font-size:13px;font-weight:700;color:#00ffcc;flex:0 0 auto}
+.llm-sub{font-size:9px;color:var(--td);flex:1;margin-top:2px}
+.llm-section{margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)}
+.llm-sect-title{font-size:8px;color:var(--td);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px}
+.llm-presets{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
+.llm-preset{background:var(--bg);border:1px solid var(--bd);color:var(--t);padding:6px 8px;cursor:pointer;text-align:left;transition:all .15s}
+.llm-preset:hover{border-color:#00ffcc}
+.llm-preset.active{border-color:#00ffcc;background:rgba(0,255,204,.06)}
+.llm-preset-label{font-family:var(--disp);font-size:10px;font-weight:700;color:var(--tb)}
+.llm-preset-note{font-size:8px;color:var(--td)}
+.llm-test-result{font-size:10px;margin-top:6px;padding:4px 8px;border:1px solid;border-radius:2px}
+.llm-models{display:flex;flex-direction:column;gap:3px}
+.llm-model{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg);border:1px solid var(--bd)}
+.llm-model-name{font-size:10px;color:var(--tb);font-family:var(--disp);font-weight:700}
+.llm-model-note{font-size:8px;color:var(--td)}
+.llm-model-id{font-size:8px;color:#00ffcc;border:1px solid rgba(0,255,204,.3);padding:1px 5px}
+.llm-pull-hint{font-size:9px;color:var(--td);margin-top:8px}
+.llm-quick-btns{display:flex;flex-wrap:wrap;gap:5px}
+.llm-quick-btn{background:transparent;border:1px solid var(--bd);color:var(--td);font-family:var(--mono);font-size:9px;padding:4px 10px;cursor:pointer;transition:all .15s}
+.llm-quick-btn:hover{border-color:#00ffcc;color:#00ffcc}
+`
 }
 
 const BUILTIN_SKILLS = [
@@ -146,6 +224,36 @@ const BUILTIN_SKILLS = [
     description: 'NCBR grant, JDG, IP Box, RODO',
     content: 'LEGAL: POLAND\n- JDG sole proprietor, SENTINEL-AI brand\n- NCBR INFOSTRATEG IX grant alignment\n- IP Box: 5% CIT rate for R&D\n- RODO (Polish GDPR)\n- Formal docs in Polish' },
   SENTINEL_VAULT_SKILL,
+  { id: 'skill-architect',   name: 'System Design Patterns', icon: '◈', color: '#00d4ff', category: 'tech',       builtin: true, global: false,
+    description: 'Hexagonal arch, CQRS, 12-Factor, design for failure',
+    content: 'ARCHITECTURE BEST PRACTICES:\n- Hexagonal architecture (ports & adapters) — isolate business logic from infrastructure\n- CQRS: separate read/write models for high-throughput systems\n- Event sourcing for audit trails and time-travel debugging\n- 12-Factor App principles: config via env, stateless processes, disposable containers\n- Design for failure: circuit breakers, retries with exponential backoff, bulkheads\n- API-first design: OpenAPI spec before implementation\n- Always document: why a decision was made, not just what was decided' },
+  { id: 'skill-codegen',     name: 'Go Best Practices',      icon: '⌥', color: '#00ff88', category: 'tech',       builtin: true, global: false,
+    description: 'Go idioms, error wrapping, context, testing patterns',
+    content: 'GO CODING STANDARDS:\n- Error wrapping: fmt.Errorf("context: %w", err)\n- Context propagation: first param of every function that does I/O\n- Interfaces: define at point of use, not implementation\n- Table-driven tests with t.Run() subtests\n- sync.RWMutex for read-heavy concurrent maps\n- pgxpool: always use context, never ignore pgx.ErrNoRows\n- Structured logging: slog or zerolog\n- Graceful shutdown: SIGTERM + drain in-flight requests\n- go test -race must pass\n- Benchmark critical paths: go test -bench -benchmem' },
+  { id: 'skill-tester',      name: 'Test Pyramid Go',        icon: '⊡', color: '#b060ff', category: 'tech',       builtin: true, global: false,
+    description: '70/20/10 pyramid, testcontainers, table-driven',
+    content: 'TESTING STRATEGY:\n70% unit (pure, fast), 20% integration (real DB via testcontainers-go), 10% E2E\n- Table-driven: []struct{ name, input, expected }\n- t.Parallel() on all unit tests\n- testcontainers-go for PostgreSQL/Redis in CI — no mocks for data layer\n- httptest.NewRecorder() for handler tests\n- goleak for goroutine leak detection\nCOVERAGE: crypto 95%+, business logic 85%+, handlers 80%+' },
+  { id: 'skill-cybersec',    name: 'STRIDE + MITRE ATT&CK',  icon: '☠', color: '#ff6b35', category: 'security',   builtin: true, global: false,
+    description: 'Full threat taxonomy, defense in depth',
+    content: 'THREAT MODELING:\nSTRIDE: Spoofing, Tampering, Repudiation, Info Disclosure, DoS, Elevation of Privilege\nMITRE ATT&CK: T1552 creds in files, T1190 exploit public app, T1078 valid accounts, T1110 brute force\nDEFENSE IN DEPTH:\n- Network: TLS 1.3 minimum\n- Application: input validation, output encoding, parameterized queries\n- Data: encryption at rest, column-level for PII\n- Monitoring: alert on auth failures and unusual data access' },
+  { id: 'skill-crypto',      name: 'NIST Crypto Standards',  icon: '⚷', color: '#e040fb', category: 'security',   builtin: true, global: false,
+    description: 'NIST 2024 approved algorithms, key management',
+    content: 'CRYPTOGRAPHIC STANDARDS (NIST 2024):\nAPPROVED: AES-256-GCM, ChaCha20-Poly1305, SHA-256+, HKDF-SHA256, Argon2id, Ed25519, X25519\nDEPRECATED (never use): MD5, SHA-1, DES, 3DES, RC4, ECB mode, RSA < 2048\nKEY MANAGEMENT:\n- Separate data keys from master keys\n- Rotate: data keys 90 days, master keys 1 year\n- Store master keys in HSM/KMS, never on app server\n- Always use HKDF, never reuse keys across contexts' },
+  { id: 'skill-devops',      name: 'GitOps + 12-Factor',     icon: '⚙', color: '#00e5ff', category: 'tech',       builtin: true, global: false,
+    description: 'Immutable infra, declarative config, GitOps',
+    content: '12-FACTOR APP:\n1. Codebase: one repo, many deploys\n3. Config: env vars only\n6. Processes: stateless, share-nothing\n9. Disposability: fast startup (<5s), graceful shutdown\n11. Logs: stdout only\nGITOPS:\n- Infrastructure as code: Terraform for all DO resources\n- No manual changes to production\n- Rollback = git revert + push' },
+  { id: 'skill-dataeng',     name: 'PostgreSQL Performance', icon: '⊞', color: '#ff9e80', category: 'tech',       builtin: true, global: false,
+    description: 'Schema design, indexing, PgBouncer, migrations',
+    content: 'POSTGRESQL BEST PRACTICES:\nSCHEMA: UUIDs (gen_random_uuid()), created_at/updated_at on every table, soft deletes with deleted_at\nINDEXING: index every FK, partial indexes (WHERE deleted_at IS NULL), EXPLAIN ANALYZE before declaring query fast\nCONNECTIONS: pgxpool min=2 max=20, PgBouncer transaction mode for high concurrency\nMIGRATIONS: sequential versioned files (001_initial.sql), always include down migration, never modify existing' },
+  { id: 'skill-performance', name: 'Google SRE Principles',  icon: '⚡', color: '#ffeb3b', category: 'tech',       builtin: true, global: false,
+    description: 'SLO/error budget, k6 load testing, pprof',
+    content: 'SRE STANDARDS:\nSLO: 99.9% availability, p50<10ms, p95<50ms, p99<200ms for secret reads\nERROR BUDGET: burn rate alerts at 2x and 5x\nk6 TESTS: smoke (1VU/1min), load (ramp to target/30min), stress (2x peak), soak (80%/4h)\nSENTINEL VAULT TARGETS: cache hit <5ms p99, cache miss <20ms p99, write+ratchet <50ms p99\nPROFILING: pprof in dev, CPU profile under load, pg_stat_statements for DB' },
+  { id: 'skill-docs',        name: 'Diátaxis Framework',     icon: '❋', color: '#ffd700', category: 'process',    builtin: true, global: false,
+    description: 'Tutorials/how-to/reference/explanation structure',
+    content: 'DOCUMENTATION FRAMEWORK (Diátaxis):\n- TUTORIALS: learning-oriented, hand-holding\n- HOW-TO GUIDES: task-oriented, assumes knowledge\n- REFERENCE: accurate, complete, dry\n- EXPLANATION: understanding-oriented, "why"\nREADME: one-sentence description, 60-second quick start, installation, config reference\nAPI DOCS: every endpoint needs description, auth, request schema, response schema, errors, curl example' },
+  { id: 'skill-commit',      name: 'Conventional Commits',   icon: '⎇', color: '#40c4ff', category: 'process',    builtin: true, global: false,
+    description: 'Commit format, branch strategy, PR requirements',
+    content: 'GIT STANDARDS:\nCOMMITS: feat:, fix:, feat!: (breaking), chore:, docs:, test:, refactor:, perf:\nBRANCHES: main (protected), develop, feat/name, fix/name, release/v1.2.0\nPR REQUIREMENTS: all tests green, 1 reviewer, no secrets in diff (gitleaks), conventional commit message, CHANGELOG updated' },
 ]
 
 const MSG_TYPES = {
@@ -372,6 +480,8 @@ export default function App() {
           if (remoteSettings.routing)        setRouting(remoteSettings.routing)
           if (remoteSettings.budgetSettings) setBudget(remoteSettings.budgetSettings)
           if (remoteSettings.agentConfigs)   setAgentCfgs(remoteSettings.agentConfigs)
+        if (remoteSettings.localLLM)       setLocalLLM(remoteSettings.localLLM)
+        if (remoteSettings.activeProject)  setActiveProject(remoteSettings.activeProject)
         }
       } catch(e) { console.log('load error', e) }
       setLoaded(true)
@@ -395,7 +505,7 @@ export default function App() {
     if (!user || !loaded) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(function() {
-      saveSettings(routing, budget, agentCfgs)
+      saveSettings(routing, budget, agentCfgs, localLLM, activeProject)
     }, 1000)
   }, [routing, budget, agentCfgs, user, loaded])
 
@@ -519,6 +629,7 @@ export default function App() {
 
     addMsg('system', 'system', 'Session complete · $' + spentRef.current.toFixed(5))
     sendNotification('session_complete', { req: req.slice(0, 60), cost: spentRef.current }).catch(function() {})
+    const sid = sessionId.current; saveSession(sid, req, Date.now(), spentRef.current, Object.fromEntries(workers.map(function(a){return[a.id,(statesRef.current[a.id]&&statesRef.current[a.id].output)||'']})), scrumPlan, scrumSynth)
     setSessions(function(p) { return [...p, { req: req, cost: spentRef.current, ts: Date.now() }] })
     setRunning(false)
   }, [req, running, routing, budget, agentCfgs, skills, workers, scrum, updState, addCost, addMsg])
@@ -542,11 +653,11 @@ export default function App() {
             <div className="logo">⬡</div>
             <div>
               <div className="nav-title">AGENT<span>POOL</span></div>
-              <div className="nav-sub">14 Agents · Persistent Skills · Live Chat</div>
+              <div className="nav-sub">14 Agents · Memory · Local LLM</div>
             </div>
           </div>
           <div className="nav-tabs">
-            {[['run','▶ Run'],['skills','◆ Skills'],['config','⚙ Config']].map(function(item) {
+            {[['run','▶ Run'],['skills','◆ Skills'],['sessions','◎ History'],['memory','◈ Memory'],['config','⚙ Config']].map(function(item) {
               return <button key={item[0]} className={'ntab' + (page === item[0] ? ' active' : '')} onClick={function() { setPage(item[0]) }}>{item[1]}</button>
             })}
           </div>
@@ -565,6 +676,10 @@ export default function App() {
 
         {page === 'skills' ? (
           <SkillsTab skills={skills} setSkills={setSkills} agentConfigs={agentCfgs} setAgentConfigs={setAgentCfgs} agents={AGENTS} />
+        ) : page === 'sessions' ? (
+          <SessionsTab agents={AGENTS} />
+        ) : page === 'memory' ? (
+          <MemoryTab agents={AGENTS} project={activeProject} />
         ) : page === 'config' ? (
           <ConfigTab configs={agentCfgs} setConfigs={setAgentCfgs} skills={skills} routing={routing} setRouting={setRouting} budgetSettings={budget} setBudgetSettings={setBudget} agents={AGENTS} user={user} />
         ) : (

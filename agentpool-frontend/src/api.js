@@ -133,3 +133,34 @@ export async function saveSettings(routing, budgetSettings, agentConfigs) {
     })
   } catch(e) { /* silent */ }
 }
+
+// ── Session persistence ───────────────────────────────────────────────────────
+export async function saveSession(id, requirement, ts, cost, outputs, scrumPlan, scrumSynth) {
+  try {
+    await fetch(API_BASE + '/api/sessions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ id, requirement, ts, cost, outputs, scrumPlan, scrumSynth })
+    })
+  } catch(e) { console.log('session save error', e) }
+}
+
+// ── Agent memory ──────────────────────────────────────────────────────────────
+export async function loadMemory(project) {
+  try {
+    const res = await fetch(API_BASE + '/api/memory/' + encodeURIComponent(project), { headers: authHeaders() })
+    if (!res.ok) return {}
+    const data = await res.json()
+    return data.memory || {}
+  } catch(e) { return {} }
+}
+
+export async function saveMemoryEntries(project, agentId, entries) {
+  try {
+    await fetch(API_BASE + '/api/memory/' + encodeURIComponent(project) + '/' + agentId, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ entries })
+    })
+  } catch(e) { console.log('memory save error', e) }
+}
