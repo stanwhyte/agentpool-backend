@@ -5,6 +5,8 @@ FE=/Users/stanwhyte/agent-pool/agents-pool/agentpool-frontend
 SERVER=root@165.245.210.144
 KEY=~/.ssh/id_ed25519
 
+
+
 echo "=== Step 1: Upload backend files ==="
 scp -i $KEY $DL/memory.js         $SERVER:/var/www/backend/src/routes/memory.js
 scp -i $KEY $DL/sessions.js       $SERVER:/var/www/backend/src/routes/sessions.js
@@ -32,12 +34,12 @@ pm2 logs agentpool-api --lines 5 --nostream
 ENDSSH
 
 echo "=== Step 3: Copy frontend files ==="
-cp $DL/App.jsx            $SRC/App.jsx
-cp $DL/api.js             $SRC/api.js
-cp $DL/ConfigTab.jsx      $SRC/ConfigTab.jsx
-cp $DL/LocalLLMConfig.jsx $SRC/LocalLLMConfig.jsx
-cp $DL/MemoryTab.jsx      $SRC/MemoryTab.jsx
-
+cp $DL/App.jsx             $SRC/App.jsx
+cp $DL/api.js              $SRC/api.js
+cp $DL/ConfigTab.jsx       $SRC/ConfigTab.jsx
+cp $DL/LocalLLMConfig.jsx  $SRC/LocalLLMConfig.jsx
+cp $DL/MemoryTab.jsx       $SRC/MemoryTab.jsx
+cp $DL/SessionsTab.jsx     $SRC/SessionsTab.jsx
 echo "--- src/ contents ---"
 ls $SRC/
 
