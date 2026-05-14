@@ -1,16 +1,84 @@
-// src/SkillsTab.jsx
-import { useState } from 'react';
+import { useState } from 'react'
 
-function uid() { return Math.random().toString(36).slice(2, 9); }
+function uid() { return Math.random().toString(36).slice(2, 9) }
 
-const SKILL_CATS = ['domain', 'tech', 'security', 'compliance', 'process', 'custom'];
+const CATS = ['domain', 'tech', 'security', 'compliance', 'process', 'custom']
 
-function SkillCard({ skill, agentConfigs, agents, onEdit, onDelete, onToggleGlobal, onToggleAgent }) {
-  const [assignOpen, setAssignOpen] = useState(false);
-  const assignedCount = agents.filter(a => (agentConfigs[a.id]?.skills || []).includes(skill.id)).length;
+function SkillForm({ initial, onSave, onCancel }) {
+  const blank = { name: '', icon: '◆', color: '#00d4ff', category: 'custom', description: '', content: '', global: false }
+  const [form, setForm] = useState(initial ? Object.assign({}, initial) : blank)
+
+  function set(field, value) {
+    setForm(function(f) { return Object.assign({}, f, { [field]: value }) })
+  }
+
+  function handleSave() {
+    if (!form.name.trim() || !form.content.trim()) return
+    onSave(form)
+  }
 
   return (
-    <div className={`skill-card ${skill.global ? 'global' : ''}`} style={{ '--skc': skill.color }}>
+    <div className="skill-form">
+      <div className="sf-title">{initial ? 'Edit Skill' : 'New Skill'}</div>
+      <div className="sf-grid">
+        <div className="sf-field">
+          <label className="sg-label">Name</label>
+          <input className="sg-input sf-input" value={form.name} placeholder="Skill name"
+            onChange={function(e) { set('name', e.target.value) }} />
+        </div>
+        <div className="sf-field">
+          <label className="sg-label">Icon</label>
+          <input className="sg-input sf-input" value={form.icon} placeholder="◆"
+            onChange={function(e) { set('icon', e.target.value) }} />
+        </div>
+        <div className="sf-field">
+          <label className="sg-label">Color</label>
+          <input className="sg-input sf-input" value={form.color} placeholder="#00d4ff"
+            onChange={function(e) { set('color', e.target.value) }} />
+        </div>
+        <div className="sf-field">
+          <label className="sg-label">Category</label>
+          <select className="sg-input sf-input" value={form.category}
+            onChange={function(e) { set('category', e.target.value) }}>
+            {CATS.map(function(c) { return <option key={c} value={c}>{c}</option> })}
+          </select>
+        </div>
+      </div>
+      <div className="sf-field" style={{ marginBottom: 8 }}>
+        <label className="sg-label">Description</label>
+        <input className="sg-input sf-input" value={form.description} placeholder="Short description"
+          onChange={function(e) { set('description', e.target.value) }} />
+      </div>
+      <div className="sf-field">
+        <label className="sg-label">Content (injected into agent prompt)</label>
+        <textarea className="sf-textarea" rows={8} value={form.content}
+          placeholder="Write the skill content..."
+          onChange={function(e) { set('content', e.target.value) }} />
+      </div>
+      <div className="sf-field sg-toggle-field" style={{ marginTop: 10 }}>
+        <div><label className="sg-label">Global — inject into ALL agents</label></div>
+        <div className={'toggle' + (form.global ? ' on' : '')}
+          style={form.global ? { '--tc': '#00ffcc' } : {}}
+          onClick={function() { set('global', !form.global) }}>
+          <div className="tknob" />
+        </div>
+      </div>
+      <div className="sf-actions">
+        <button className="sf-save" onClick={handleSave}>Save</button>
+        <button className="sf-cancel" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function SkillCard({ skill, agents, agentConfigs, onEdit, onDelete, onToggleGlobal, onToggleAgent }) {
+  const [assignOpen, setAssignOpen] = useState(false)
+  const assignedCount = agents.filter(function(a) {
+    return (agentConfigs[a.id] && agentConfigs[a.id].skills || []).includes(skill.id)
+  }).length
+
+  return (
+    <div className={'skill-card' + (skill.global ? ' global' : '')} style={{ '--skc': skill.color }}>
       <div className="sk-card-hdr">
         <span className="sk-card-icon" style={{ color: skill.color }}>{skill.icon}</span>
         <div>
@@ -21,149 +89,78 @@ function SkillCard({ skill, agentConfigs, agents, onEdit, onDelete, onToggleGlob
       </div>
       <div className="sk-card-preview">{skill.content.slice(0, 100)}...</div>
       <div className="sk-card-actions">
-        <button className="sk-act" onClick={() => onEdit(skill)}>✎</button>
-        <button
-          className={`sk-act ${skill.global ? 'sk-act-on' : ''}`}
-          onClick={() => onToggleGlobal(skill.id)}
-        >
+        <button className="sk-act" onClick={function() { onEdit(skill) }}>✎</button>
+        <button className={'sk-act' + (skill.global ? ' sk-act-on' : '')}
+          onClick={function() { onToggleGlobal(skill.id) }}>
           {skill.global ? '◉ Global' : '○ Global'}
         </button>
-        <button
-          className="sk-act sk-assign"
-          onClick={() => setAssignOpen(o => !o)}
-        >
+        <button className="sk-act sk-assign"
+          onClick={function() { setAssignOpen(function(o) { return !o }) }}>
           ⊕ Assign ({assignedCount})
         </button>
         {!skill.builtin && (
-          <button className="sk-act sk-del" onClick={() => onDelete(skill.id)}>✕</button>
+          <button className="sk-act sk-del" onClick={function() { onDelete(skill.id) }}>✕</button>
         )}
       </div>
-
       {assignOpen && (
         <div className="sk-assign-panel">
           <div className="sk-assign-title">Assign to agents:</div>
           <div className="sk-assign-agents">
-            {agents.map(agent => {
-              const has = (agentConfigs[agent.id]?.skills || []).includes(skill.id);
+            {agents.map(function(agent) {
+              const has = (agentConfigs[agent.id] && agentConfigs[agent.id].skills || []).includes(skill.id)
               return (
-                <button
-                  key={agent.id}
-                  className={`sk-agent-btn ${has ? 'active' : ''}`}
-                  style={has ? { borderColor: agent.color, color: agent.color, background: `${agent.color}15` } : {}}
-                  onClick={() => onToggleAgent(agent.id, skill.id)}
-                >
+                <button key={agent.id}
+                  className={'sk-agent-btn' + (has ? ' active' : '')}
+                  style={has ? { borderColor: agent.color, color: agent.color, background: agent.color + '15' } : {}}
+                  onClick={function() { onToggleAgent(agent.id, skill.id) }}>
                   <span style={{ color: agent.color }}>{agent.icon}</span> {agent.name}
                 </button>
-              );
+              )
             })}
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-function SkillForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial || {
-    name: '', icon: '◆', color: '#00d4ff',
-    category: 'custom', description: '', content: '', global: false,
-  });
-
-  const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
-
-  return (
-    <div className="skill-form">
-      <div className="sf-title">{initial ? 'Edit Skill' : 'New Skill'}</div>
-      <div className="sf-grid">
-        <div className="sf-field">
-          <label className="sg-label">Name</label>
-          <input className="sg-input sf-input" value={form.name} onChange={e => update('name', e.target.value)} placeholder="Skill name" />
-        </div>
-        <div className="sf-field">
-          <label className="sg-label">Icon</label>
-          <input className="sg-input sf-input" value={form.icon} onChange={e => update('icon', e.target.value)} placeholder="◆" />
-        </div>
-        <div className="sf-field">
-          <label className="sg-label">Color</label>
-          <input className="sg-input sf-input" value={form.color} onChange={e => update('color', e.target.value)} placeholder="#00d4ff" />
-        </div>
-        <div className="sf-field">
-          <label className="sg-label">Category</label>
-          <select className="sg-input sf-input" value={form.category} onChange={e => update('category', e.target.value)}>
-            {SKILL_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="sf-field" style={{ marginBottom: 8 }}>
-        <label className="sg-label">Description</label>
-        <input className="sg-input sf-input" value={form.description} onChange={e => update('description', e.target.value)} placeholder="Short description" />
-      </div>
-      <div className="sf-field">
-        <label className="sg-label">Content (injected into agent prompt)</label>
-        <textarea
-          className="sf-textarea"
-          rows={8}
-          value={form.content}
-          onChange={e => update('content', e.target.value)}
-          placeholder="Write the skill content — appended to the agent's system prompt..."
-        />
-      </div>
-      <div className="sf-field sg-toggle-field" style={{ marginTop: 10 }}>
-        <div>
-          <label className="sg-label">Global — inject into ALL agents</label>
-        </div>
-        <div
-          className={`toggle ${form.global ? 'on' : ''}`}
-          style={form.global ? { '--tc': '#00ffcc' } : {}}
-          onClick={() => update('global', !form.global)}
-        >
-          <div className="tknob" />
-        </div>
-      </div>
-      <div className="sf-actions">
-        <button className="sf-save" onClick={() => { if (form.name && form.content) onSave(form); }}>Save</button>
-        <button className="sf-cancel" onClick={onCancel}>Cancel</button>
-      </div>
-    </div>
-  );
+  )
 }
 
 export default function SkillsTab({ skills, setSkills, agentConfigs, setAgentConfigs, agents }) {
-  const [editing, setEditing] = useState(null); // null | 'new' | skill object
+  const [editing, setEditing] = useState(null)
 
-  const handleSave = (form) => {
+  function handleSave(form) {
     if (editing === 'new') {
-      setSkills(p => [...p, { ...form, id: `custom-${uid()}`, builtin: false }]);
+      setSkills(function(p) { return [...p, Object.assign({}, form, { id: 'custom-' + uid(), builtin: false })] })
     } else {
-      setSkills(p => p.map(s => s.id === editing.id ? { ...s, ...form } : s));
+      setSkills(function(p) { return p.map(function(s) { return s.id === editing.id ? Object.assign({}, s, form) : s }) })
     }
-    setEditing(null);
-  };
+    setEditing(null)
+  }
 
-  const handleDelete = (id) => {
-    setSkills(p => p.filter(s => s.id !== id));
-    setAgentConfigs(p => {
-      const next = { ...p };
-      Object.keys(next).forEach(aid => {
-        if (next[aid]?.skills) {
-          next[aid] = { ...next[aid], skills: next[aid].skills.filter(sid => sid !== id) };
+  function handleDelete(id) {
+    setSkills(function(p) { return p.filter(function(s) { return s.id !== id }) })
+    setAgentConfigs(function(p) {
+      const next = Object.assign({}, p)
+      Object.keys(next).forEach(function(aid) {
+        if (next[aid] && next[aid].skills) {
+          next[aid] = Object.assign({}, next[aid], { skills: next[aid].skills.filter(function(sid) { return sid !== id }) })
         }
-      });
-      return next;
-    });
-  };
+      })
+      return next
+    })
+  }
 
-  const handleToggleGlobal = (id) => {
-    setSkills(p => p.map(s => s.id === id ? { ...s, global: !s.global } : s));
-  };
+  function handleToggleGlobal(id) {
+    setSkills(function(p) { return p.map(function(s) { return s.id === id ? Object.assign({}, s, { global: !s.global }) : s }) })
+  }
 
-  const handleToggleAgent = (agentId, skillId) => {
-    setAgentConfigs(p => {
-      const cur = p[agentId]?.skills || [];
-      const has = cur.includes(skillId);
-      return { ...p, [agentId]: { ...p[agentId], skills: has ? cur.filter(s => s !== skillId) : [...cur, skillId] } };
-    });
-  };
+  function handleToggleAgent(agentId, skillId) {
+    setAgentConfigs(function(p) {
+      const cur = (p[agentId] && p[agentId].skills) || []
+      const has = cur.includes(skillId)
+      const next = Object.assign({}, p[agentId], { skills: has ? cur.filter(function(s) { return s !== skillId }) : [...cur, skillId] })
+      return Object.assign({}, p, { [agentId]: next })
+    })
+  }
 
   return (
     <div className="skills-page">
@@ -172,40 +169,40 @@ export default function SkillsTab({ skills, setSkills, agentConfigs, setAgentCon
           <div className="sk-title">Skills Library</div>
           <div className="sk-sub">Reusable knowledge blocks injected into agent prompts</div>
         </div>
-        <button className="sk-new-btn" onClick={() => setEditing('new')}>+ New Skill</button>
+        <button className="sk-new-btn" onClick={function() { setEditing('new') }}>+ New Skill</button>
       </div>
 
       {editing && (
         <SkillForm
+          key={editing === 'new' ? 'new' : editing.id}
           initial={editing === 'new' ? null : editing}
           onSave={handleSave}
-          onCancel={() => setEditing(null)}
+          onCancel={function() { setEditing(null) }}
         />
       )}
 
-      {SKILL_CATS.map(cat => {
-        const catSkills = skills.filter(s => s.category === cat);
-        if (!catSkills.length) return null;
+      {CATS.map(function(cat) {
+        const catSkills = skills.filter(function(s) { return s.category === cat })
+        if (!catSkills.length) return null
         return (
           <div key={cat} className="skill-category">
             <div className="scat-label">{cat}</div>
             <div className="skill-grid">
-              {catSkills.map(skill => (
-                <SkillCard
-                  key={skill.id}
-                  skill={skill}
-                  agents={agents}
-                  agentConfigs={agentConfigs}
-                  onEdit={s => setEditing(s)}
-                  onDelete={handleDelete}
-                  onToggleGlobal={handleToggleGlobal}
-                  onToggleAgent={handleToggleAgent}
-                />
-              ))}
+              {catSkills.map(function(skill) {
+                return (
+                  <SkillCard key={skill.id} skill={skill} agents={agents}
+                    agentConfigs={agentConfigs}
+                    onEdit={function(s) { setEditing(s) }}
+                    onDelete={handleDelete}
+                    onToggleGlobal={handleToggleGlobal}
+                    onToggleAgent={handleToggleAgent}
+                  />
+                )
+              })}
             </div>
           </div>
-        );
+        )
       })}
     </div>
-  );
+  )
 }

@@ -272,11 +272,19 @@ function ts()   { return new Date().toLocaleTimeString('en-GB', { hour: '2-digit
 function etok(t) { return Math.ceil((t || '').length / 4) }
 function ecost(mk, i, o) { const m = MODELS[mk]; if (!m) return 0; return (i / 1e6) * m.costIn + (o / 1e6) * m.costOut }
 
-function resolveModel(agentId, routing, budget, spent) {
+function resolveModel(agentId, routing, budget, spent, localLLM) {
   const assigned = routing[agentId] || 'claude-sonnet-4-20250514'
+  // If local LLM enabled and agent is routed to a local model — use it directly
+  if (localLLM && localLLM.enabled && assigned.startsWith('ollama/')) return assigned
+  // If local LLM enabled and quickRoute set — override all agents
+  if (localLLM && localLLM.enabled && localLLM.quickRoute) return localLLM.quickRoute
   const pct = budget.sessionBudget > 0 ? spent / budget.sessionBudget : 0
   if (budget.autoDowngrade) {
-    if (pct >= 0.85) return DOWNGRADE[assigned] || 'llama-3.3-70b-versatile'
+    if (pct >= 0.85) {
+      // If local LLM enabled with fallback — use local instead of Groq
+      if (localLLM && localLLM.enabled && localLLM.fallback) return 'ollama/llama3.2'
+      return DOWNGRADE[assigned] || 'llama-3.3-70b-versatile'
+    }
     if (pct >= 0.60 && MODELS[assigned] && MODELS[assigned].costIn > 1) return DOWNGRADE[assigned] || assigned
   }
   return assigned
@@ -446,7 +454,9 @@ export default function App() {
   const [sessions,   setSessions]   = useState([])
   const [modal,      setModal]      = useState(null)
   const [chatSplit,  setChatSplit]  = useState(38)
-  const [interrupts, setInterrupts] = useState([])
+  const [interrupts,    setInterrupts]    = useState([])
+  const [activeProject, setActiveProject] = useState('sentinel-vault')
+  const [localLLM,      setLocalLLM]      = useState({ enabled: false, endpoint: 'http://localhost:11434', fallback: true, quickRoute: null })
   const [saveStatus, setSaveStatus] = useState('')
 
   const statesRef     = useRef(states)
@@ -530,7 +540,7 @@ export default function App() {
       addMsg('system', 'system', 'Interrupt queued for ' + target.name)
     } else {
       addMsg('system', 'system', 'Re-running ' + target.name + '...')
-      updState(target.id, { status: 'streaming', output: '', progress: 5, model: routing[target.id] })
+      updState(target.id, { status: 'streaming', output: '', progress: 5, model: resolveModel(target.id, routing, budget, spentRef.current, localLLM) })
       try {
         const mk = routing[target.id] || 'claude-sonnet-4-20250514'
         const sys = buildPrompt(target, agentCfgs[target.id], skills)
@@ -573,7 +583,7 @@ export default function App() {
     workers.forEach(function(a) { updState(a.id, { status: 'waiting', progress: 0 }) })
 
     await Promise.allSettled(workers.map(async function(agent) {
-      const mk = resolveModel(agent.id, routing, budget, spentRef.current)
+      const mk = resolveModel(agent.id, routing, budget, spentRef.current, localLLM)
       updState(agent.id, { status: 'streaming', progress: 5, model: mk })
       addMsg(agent.id, 'status', 'Starting with ' + ((MODELS[mk] && MODELS[mk].label) || mk) + '...')
       try {
@@ -681,7 +691,7 @@ export default function App() {
         ) : page === 'memory' ? (
           <MemoryTab agents={AGENTS} project={activeProject} />
         ) : page === 'config' ? (
-          <ConfigTab configs={agentCfgs} setConfigs={setAgentCfgs} skills={skills} routing={routing} setRouting={setRouting} budgetSettings={budget} setBudgetSettings={setBudget} agents={AGENTS} user={user} />
+          <ConfigTab configs={agentCfgs} setConfigs={setAgentCfgs} skills={skills} routing={routing} setRouting={setRouting} budgetSettings={budget} setBudgetSettings={setBudget} agents={AGENTS} user={user} localLLM={localLLM} setLocalLLM={setLocalLLM} />
         ) : (
           <>
             <div className="input-section">
@@ -696,6 +706,7 @@ export default function App() {
                   <div className="quick-info">
                     <div className="qi-row"><span style={{ color: '#00ffcc' }}>✦</span> {skills.filter(function(s) { return s.global }).length} global skills</div>
                     <div className="qi-row"><span style={{ color: '#ff9500' }}>$</span> Cap: ${budget.sessionBudget}</div>
+                    {localLLM && localLLM.enabled && <div className="qi-row"><span style={{ color: '#00ffcc' }}>⚡</span> Local LLM {localLLM.quickRoute ? '— ALL agents' : '— active'}</div>}
                   </div>
                 </div>
               </div>

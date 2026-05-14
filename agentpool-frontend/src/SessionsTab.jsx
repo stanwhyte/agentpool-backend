@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { getToken } from './api.js'
 
-const API_BASE = typeof import.meta !== 'undefined' && import.meta.env
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.safecitysentinel.com'
   ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
   : 'http://localhost:3001'
 
