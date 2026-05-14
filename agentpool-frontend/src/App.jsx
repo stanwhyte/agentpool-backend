@@ -4,7 +4,9 @@ import SkillsTab from './SkillsTab.jsx'
 import ConfigTab from './ConfigTab.jsx'
 import { isLoggedIn, getUser, logout, streamAgent, sendNotification, loadSkills, saveSkills, loadSettings, saveSettings, saveSession, loadMemory, saveMemoryEntries } from './api.js'
 import SessionsTab  from './SessionsTab.jsx'
-import MemoryTab    from './MemoryTab.jsx'
+import MemoryTab      from './MemoryTab.jsx'
+import ExecutorPanel  from './ExecutorPanel.jsx'
+import ApprovalGate   from './ApprovalGate.jsx'
 import LocalLLMConfig from './LocalLLMConfig.jsx'
 
 const MODELS = {
@@ -21,7 +23,7 @@ const DEFAULT_ROUTING = {
   scrum: 'claude-sonnet-4-20250514', architect: 'claude-sonnet-4-20250514',
   codegen: 'gpt-4o', research: 'sonar-pro',
   reviewer: 'claude-sonnet-4-20250514', tester: 'gpt-4o-mini',
-  docs: 'gemini-2.0-flash', cybersec: 'claude-sonnet-4-20250514',
+  docs: 'llama-3.3-70b-versatile', cybersec: 'claude-sonnet-4-20250514',
   crypto: 'claude-sonnet-4-20250514', commit: 'gpt-4o-mini',
   devops: 'gpt-4o', webdocs: 'claude-sonnet-4-20250514', dataeng: 'gpt-4o',
   performance: 'gpt-4o',
@@ -457,6 +459,9 @@ export default function App() {
   const [interrupts,    setInterrupts]    = useState([])
   const [activeProject, setActiveProject] = useState('sentinel-vault')
   const [localLLM,      setLocalLLM]      = useState({ enabled: false, endpoint: 'http://localhost:11434', fallback: true, quickRoute: null })
+  const [execResult,    setExecResult]    = useState(null)
+  const [execFiles,     setExecFiles]     = useState([])
+  const [showApproval,  setShowApproval]  = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
 
   const statesRef     = useRef(states)
@@ -753,6 +758,24 @@ export default function App() {
                         return <AgentCard key={agent.id} agent={agent} status={st.status || 'idle'} output={st.output || ''} progress={st.progress || 0} modelKey={st.model || routing[agent.id]} cost={st.cost || 0} onExpand={setModal} />
                       })}
                     </div>
+                    {/* Code Executor — shown after session completes */}
+                    {hasRun && !running && (
+                      <ExecutorPanel
+                        agentOutputs={Object.fromEntries(workers.map(function(a) { return [a.id, (states[a.id] && states[a.id].output) || ''] }))}
+                        sessionId={sessionId.current}
+                        onResult={function(result, files) {
+                          setExecResult(result)
+                          setExecFiles(files)
+                          if (result.success) setShowApproval(true)
+                        }}
+                      />
+                    )}
+                    {showApproval && (
+                      <button className="run-btn" style={{ margin: '8px 13px', borderColor: '#00ff88', color: '#00ff88' }}
+                        onClick={function() { setShowApproval(true) }}>
+                        ✓ Review & Commit to GitHub
+                      </button>
+                    )}
                     {scrumSynth && (
                       <div className="scrum-strip synth" style={{ '--sc': '#00ff88' }}>
                         <div className="ss-hdr-row">
@@ -773,6 +796,21 @@ export default function App() {
         )}
       </div>
 
+      {showApproval && (
+        <ApprovalGate
+          session={{
+            id:            sessionId.current,
+            requirement:   req,
+            files:         execFiles,
+            testResult:    execResult && execResult.testSummary,
+            commitMessage: 'feat: ' + req.slice(0, 60).toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/ +/g, '-'),
+            branchName:    'agentpool-' + (sessionId.current || '').slice(0, 6),
+          }}
+          onApprove={function(data) { setShowApproval(false); addMsg('system', 'complete', '✓ Committed — PR: ' + data.prUrl) }}
+          onReject={function()      { setShowApproval(false); addMsg('system', 'warning',  'Commit rejected by user') }}
+          onClose={function()       { setShowApproval(false) }}
+        />
+      )}
       {modal && (
         <div className="modal-ov" onClick={function() { setModal(null) }}>
           <div className="modal" style={{ '--ac': modal.startsWith('__') ? (modal === '__scrum_plan' ? '#ffffff' : '#00ff88') : ((modalAgent && modalAgent.color) || '#00d4ff') }} onClick={function(e) { e.stopPropagation() }}>
@@ -1052,4 +1090,25 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .modal-close{background:transparent;border:1px solid var(--bd);color:var(--td);font-size:12px;width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
 .modal-close:hover{border-color:#ff4560;color:#ff4560}
 .modal-body{flex:1;overflow-y:auto;padding:16px;scrollbar-width:thin;scrollbar-color:var(--bd) transparent}
+.executor-panel{background:var(--s1);border:1px solid var(--bd);border-top:2px solid #00ffcc;padding:13px;margin:1px 0}
+.ep-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--bd)}
+.ep-files{display:flex;flex-direction:column;gap:0}
+.ep-results{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.ep-step{background:var(--bg);border:1px solid var(--bd);padding:8px 10px}
+.ep-test-summary{background:var(--bg);border:1px solid var(--bd);padding:10px;border-left:2px solid #00ff88}
+.ag-section-title{font-size:8px;color:var(--td);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px}
+.ag-tests{display:flex;flex-direction:column;gap:2px}
+.ag-test-summary{display:flex;gap:12px;font-size:10px;margin-bottom:6px;font-weight:700}
+.ag-test-row{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:9px}
+.ag-test-name{flex:1;font-family:var(--mono)}
+.ag-files{display:flex;flex-direction:column;gap:3px}
+.ag-file-row{display:flex;align-items:center;gap:6px;font-size:10px;font-family:var(--mono)}
+.ag-file-path{flex:1;color:var(--tb)}
+.ag-approve-btn{background:#00ff88;border:none;color:var(--bg);font-family:var(--disp);font-weight:700;font-size:11px;padding:9px 18px;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .2s}
+.ag-approve-btn:disabled{opacity:.35;cursor:not-allowed}
+.ag-reject-btn{background:transparent;border:1.5px solid #ff4560;color:#ff4560;font-family:var(--disp);font-weight:700;font-size:11px;padding:9px 18px;cursor:pointer;letter-spacing:1px}
+.ag-reject-btn:hover{background:#ff4560;color:var(--bg)}
+.ag-pr-link{color:#00d4ff;font-size:11px;text-decoration:none;border:1px solid #00d4ff;padding:6px 12px;display:inline-block}
+.ag-pr-link:hover{background:#00d4ff;color:var(--bg)}
+.approval-modal{border-top-color:#00ff88}
 `
