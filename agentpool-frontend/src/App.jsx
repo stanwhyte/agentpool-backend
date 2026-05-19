@@ -270,7 +270,20 @@ const MSG_TYPES = {
 }
 
 function uid()  { return Math.random().toString(36).slice(2, 9) }
-function ts()   { return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }
+function ts(tz) {
+  return new Date().toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone: tz || Intl.DateTimeFormat().resolvedOptions().timeZone
+  })
+}
+function tsDate(tz) {
+  return new Date().toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+    timeZone: tz || Intl.DateTimeFormat().resolvedOptions().timeZone
+  })
+}
+function detectTZ() { return Intl.DateTimeFormat().resolvedOptions().timeZone }
 function etok(t) { return Math.ceil((t || '').length / 4) }
 function ecost(mk, i, o) { const m = MODELS[mk]; if (!m) return 0; return (i / 1e6) * m.costIn + (o / 1e6) * m.costOut }
 
@@ -292,7 +305,7 @@ function resolveModel(agentId, routing, budget, spent, localLLM) {
   return assigned
 }
 
-function buildPrompt(agent, cfg, skills) {
+function buildPrompt(agent, cfg, skills, timezone) {
   let sys = agent.systemPrompt
   const adds = []
   const ids = []
@@ -305,6 +318,10 @@ function buildPrompt(agent, cfg, skills) {
   if (cfg && cfg.techStack)          adds.push('TECH STACK:\n' + cfg.techStack)
   if (cfg && cfg.repoContext)        adds.push('CODEBASE:\n' + cfg.repoContext.readme + '\n\nFILE TREE:\n' + cfg.repoContext.fileTree)
   if (cfg && cfg.customInstructions) adds.push('ADDITIONAL:\n' + cfg.customInstructions)
+  // Inject timezone context
+  if (timezone) {
+    adds.push('TIMEZONE CONTEXT:\n- User timezone: ' + timezone + '\n- Current time: ' + new Date().toLocaleString('en-GB', { timeZone: timezone, dateStyle: 'full', timeStyle: 'long' }) + '\n- Always use this timezone for all timestamps, logs, schedules, and time-based configurations\n- PostgreSQL: SET timezone = \'' + timezone + '\'; in session config\n- Go: use time.LoadLocation("' + timezone + '") not time.UTC unless explicitly storing UTC\n- Cron expressions: calculate in ' + timezone + ' not UTC')
+  }
   if (cfg && cfg.overrideMode && cfg.customInstructions) return cfg.customInstructions
   return adds.length ? sys + '\n\n---\n\n' + adds.join('\n\n') : sys
 }
@@ -459,6 +476,7 @@ export default function App() {
   const [interrupts,    setInterrupts]    = useState([])
   const [activeProject, setActiveProject] = useState('sentinel-vault')
   const [localLLM,      setLocalLLM]      = useState({ enabled: false, endpoint: 'http://localhost:11434', fallback: true, quickRoute: null })
+  const [timezone,      setTimezone]      = useState(detectTZ())
   const [execResult,    setExecResult]    = useState(null)
   const [execFiles,     setExecFiles]     = useState([])
   const [showApproval,  setShowApproval]  = useState(false)
@@ -469,20 +487,24 @@ export default function App() {
   const runningRef    = useRef(running)
   const interruptsRef = useRef(interrupts)
   const sessionId     = useRef(uid())
+  const scrumPlanRef  = useRef('')
+  const scrumSynthRef = useRef('')
   const saveTimer     = useRef(null)
 
   useEffect(function() { statesRef.current     = states     }, [states])
   useEffect(function() { runningRef.current    = running    }, [running])
   useEffect(function() { interruptsRef.current = interrupts }, [interrupts])
+  useEffect(function() { scrumPlanRef.current  = scrumPlan  }, [scrumPlan])
+  useEffect(function() { scrumSynthRef.current = scrumSynth }, [scrumSynth])
 
   // ── Load persisted skills + settings on login ──────────────────────────────
   useEffect(function() {
     if (!user || loaded) return
     async function load() {
+      // Load remote skills and settings
       try {
         const [remoteSkills, remoteSettings] = await Promise.all([loadSkills(), loadSettings()])
         if (remoteSkills && remoteSkills.length > 0) {
-          // Merge: keep builtins, add any custom ones from server
           const builtinIds = BUILTIN_SKILLS.map(function(s) { return s.id })
           const custom     = remoteSkills.filter(function(s) { return !builtinIds.includes(s.id) })
           const builtins   = BUILTIN_SKILLS.map(function(b) {
@@ -492,13 +514,41 @@ export default function App() {
           setSkills([...builtins, ...custom])
         }
         if (remoteSettings && Object.keys(remoteSettings).length > 0) {
-          if (remoteSettings.routing)        setRouting(remoteSettings.routing)
+          if (remoteSettings.routing)       setRouting(remoteSettings.routing)
           if (remoteSettings.budgetSettings) setBudget(remoteSettings.budgetSettings)
-          if (remoteSettings.agentConfigs)   setAgentCfgs(remoteSettings.agentConfigs)
-        if (remoteSettings.localLLM)       setLocalLLM(remoteSettings.localLLM)
-        if (remoteSettings.activeProject)  setActiveProject(remoteSettings.activeProject)
+          if (remoteSettings.agentConfigs)  setAgentCfgs(remoteSettings.agentConfigs)
+          if (remoteSettings.localLLM)      setLocalLLM(remoteSettings.localLLM)
+          if (remoteSettings.timezone)      setTimezone(remoteSettings.timezone)
+          if (remoteSettings.activeProject) setActiveProject(remoteSettings.activeProject)
         }
-      } catch(e) { console.log('load error', e) }
+      } catch(e) { console.log('settings load error', e) }
+
+      // Restore last session from localStorage
+      try {
+        const last = localStorage.getItem('agentpool_last_session')
+        if (last) {
+          const s = JSON.parse(last)
+          if (s && s.req) {
+            setReq(s.req)
+            setScrumPlan(s.scrumPlan || '')
+            setScrumSynth(s.scrumSynth || '')
+            setPlanPhase(s.scrumPlan ? 'done' : null)
+            setSynthPhase(s.scrumSynth ? 'done' : null)
+            if (s.outputs) {
+              setStates(function(prev) {
+                const next = Object.assign({}, prev)
+                Object.entries(s.outputs).forEach(function(entry) {
+                  if (entry[1]) {
+                    next[entry[0]] = { status: 'done', output: entry[1], progress: 100, model: null, cost: 0 }
+                  }
+                })
+                return next
+              })
+            }
+          }
+        }
+      } catch(e) { console.log('session restore error', e) }
+
       setLoaded(true)
     }
     load()
@@ -520,7 +570,7 @@ export default function App() {
     if (!user || !loaded) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(function() {
-      saveSettings(routing, budget, agentCfgs, localLLM, activeProject)
+      saveSettings(routing, budget, agentCfgs, localLLM, activeProject, timezone)
     }, 1000)
   }, [routing, budget, agentCfgs, user, loaded])
 
@@ -529,7 +579,7 @@ export default function App() {
 
   const updState = useCallback(function(id, patch) { setStates(function(p) { return Object.assign({}, p, { [id]: Object.assign({}, p[id], patch) }) }) }, [])
   const addCost  = useCallback(function(amt) { spentRef.current += amt; setSpent(spentRef.current) }, [])
-  const addMsg   = useCallback(function(agentId, type, text) { setMsgs(function(p) { return [...p, { id: uid(), agentId: agentId, type: type, text: text, ts: ts(), reaction: null }] }) }, [])
+  const addMsg   = useCallback(function(agentId, type, text) { setMsgs(function(p) { return [...p, { id: uid(), agentId: agentId, type: type, text: text, ts: ts(timezone), reaction: null }] }) }, [timezone])
 
   const handlePin   = useCallback(function(id) { setPinned(function(p) { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n }) }, [])
   const handleReact = useCallback(function(id, r) { setMsgs(function(p) { return p.map(function(m) { return m.id === id ? Object.assign({}, m, { reaction: m.reaction === r ? null : r }) : m }) }) }, [])
@@ -548,7 +598,7 @@ export default function App() {
       updState(target.id, { status: 'streaming', output: '', progress: 5, model: resolveModel(target.id, routing, budget, spentRef.current, localLLM) })
       try {
         const mk = routing[target.id] || 'claude-sonnet-4-20250514'
-        const sys = buildPrompt(target, agentCfgs[target.id], skills)
+        const sys = buildPrompt(target, agentCfgs[target.id], skills, timezone)
         let out = ''
         await streamAgent({ model: mk, system: sys, messages: [{ role: 'user', content: 'Requirement: ' + req + '\n\nInstruction: ' + mm[2] }], agentId: target.id, sessionId: sessionId.current,
           onChunk: function(chunk) { out += chunk; updState(target.id, { output: out, progress: Math.min(95, 5 + (out.length / 2000) * 90) }) }
@@ -573,7 +623,7 @@ export default function App() {
     addMsg('scrum', 'status', 'Analyzing requirement...')
     setPlanPhase('active')
     try {
-      const sys = buildPrompt(scrum, agentCfgs.scrum, skills)
+      const sys = buildPrompt(scrum, agentCfgs.scrum, skills, timezone)
       let plan = ''
       await streamAgent({ model: routing.scrum || 'claude-sonnet-4-20250514', system: sys,
         messages: [{ role: 'user', content: 'Technical Requirement:\n\n' + req }],
@@ -592,7 +642,7 @@ export default function App() {
       updState(agent.id, { status: 'streaming', progress: 5, model: mk })
       addMsg(agent.id, 'status', 'Starting with ' + ((MODELS[mk] && MODELS[mk].label) || mk) + '...')
       try {
-        const sys = buildPrompt(agent, agentCfgs[agent.id], skills)
+        const sys = buildPrompt(agent, agentCfgs[agent.id], skills, timezone)
         let out = '', chars = 0, lastChk = Date.now()
         await streamAgent({ model: mk, system: sys,
           messages: [{ role: 'user', content: 'Technical Requirement:\n\n' + req + '\n\nProvide your specialized analysis. Prefix key findings with "NOTE FOR TEAM:"' }],
@@ -644,7 +694,26 @@ export default function App() {
 
     addMsg('system', 'system', 'Session complete · $' + spentRef.current.toFixed(5))
     sendNotification('session_complete', { req: req.slice(0, 60), cost: spentRef.current }).catch(function() {})
-    const sid = sessionId.current; saveSession(sid, req, Date.now(), spentRef.current, Object.fromEntries(workers.map(function(a){return[a.id,(statesRef.current[a.id]&&statesRef.current[a.id].output)||'']})), scrumPlan, scrumSynth)
+
+    // Capture all final outputs and save
+    const finalOutputs = {}
+    workers.forEach(function(a) {
+      finalOutputs[a.id] = (statesRef.current[a.id] && statesRef.current[a.id].output) || ''
+    })
+    saveSession(
+      sessionId.current, req, Date.now(), spentRef.current,
+      finalOutputs,
+      scrumPlanRef.current || scrumPlan || '',
+      scrumSynthRef.current || scrumSynth || ''
+    ).catch(function() {})
+    try {
+      localStorage.setItem('agentpool_last_session', JSON.stringify({
+        id: sessionId.current, req: req, ts: Date.now(),
+        cost: spentRef.current, outputs: finalOutputs,
+        scrumPlan: scrumPlanRef.current || scrumPlan || '',
+        scrumSynth: scrumSynthRef.current || scrumSynth || '',
+      }))
+    } catch(e) {}
     setSessions(function(p) { return [...p, { req: req, cost: spentRef.current, ts: Date.now() }] })
     setRunning(false)
   }, [req, running, routing, budget, agentCfgs, skills, workers, scrum, updState, addCost, addMsg])
@@ -696,7 +765,7 @@ export default function App() {
         ) : page === 'memory' ? (
           <MemoryTab agents={AGENTS} project={activeProject} />
         ) : page === 'config' ? (
-          <ConfigTab configs={agentCfgs} setConfigs={setAgentCfgs} skills={skills} routing={routing} setRouting={setRouting} budgetSettings={budget} setBudgetSettings={setBudget} agents={AGENTS} user={user} localLLM={localLLM} setLocalLLM={setLocalLLM} />
+          <ConfigTab configs={agentCfgs} setConfigs={setAgentCfgs} skills={skills} routing={routing} setRouting={setRouting} budgetSettings={budget} setBudgetSettings={setBudget} agents={AGENTS} user={user} localLLM={localLLM} setLocalLLM={setLocalLLM} timezone={timezone} setTimezone={setTimezone} />
         ) : (
           <>
             <div className="input-section">
@@ -1111,4 +1180,9 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .ag-pr-link{color:#00d4ff;font-size:11px;text-decoration:none;border:1px solid #00d4ff;padding:6px 12px;display:inline-block}
 .ag-pr-link:hover{background:#00d4ff;color:var(--bg)}
 .approval-modal{border-top-color:#00ff88}
+.autofixer{background:var(--s1);border:1px solid rgba(255,149,0,.3);border-left:2px solid #ff9500;padding:12px;margin-top:8px}
+.af-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:10px}
+.af-title{font-family:var(--disp);font-size:12px;font-weight:700;color:#ff9500}
+.af-sub{font-size:9px;color:var(--td);margin-top:2px}
+.af-log{display:flex;flex-direction:column;gap:2px;padding:6px 8px;background:var(--bg);border:1px solid var(--bd);max-height:100px;overflow-y:auto}
 `

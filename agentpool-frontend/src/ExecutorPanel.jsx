@@ -1,6 +1,7 @@
 // src/ExecutorPanel.jsx
 // Code execution panel — compile, test, show results
 import { useState } from 'react'
+import AutoFixer from './AutoFixer.jsx'
 import { getToken } from './api.js'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.safecitysentinel.com'
@@ -23,12 +24,28 @@ function TestRow({ test }) {
 
 export default function ExecutorPanel({ agentOutputs, sessionId, onResult }) {
   const [running,    setRunning]    = useState(false)
+  const [currentFiles, setCurrentFiles] = useState(null)
   const [result,     setResult]     = useState(null)
   const [error,      setError]      = useState('')
   const [step,       setStep]       = useState('')
   const [dockerOk,   setDockerOk]   = useState(null)
   const [language,   setLanguage]   = useState('go')
   const [retryCount, setRetryCount] = useState(0)
+
+  // Trusted agents that produce real code
+  const CODE_AGENTS = ['codegen', 'tester', 'dataeng', 'crypto', 'architect', 'devops']
+
+  function isValidGoFile(content) {
+    if (!content || content.trim().length < 10) return false
+    const lines = content.trim().split('\n')
+    // Find first non-comment, non-empty line
+    for (let i = 0; i < Math.min(lines.length, 5); i++) {
+      const line = lines[i].trim()
+      if (!line || line.startsWith('//') || line.startsWith('/*')) continue
+      return line.startsWith('package ')
+    }
+    return false
+  }
 
   // Extract files from agent outputs
   function extractFiles(outputs) {
@@ -37,20 +54,47 @@ export default function ExecutorPanel({ agentOutputs, sessionId, onResult }) {
       const agentId = entry[0]
       const output  = entry[1]
       if (!output) return
-      // Extract code blocks with file paths
-      const matches = [...output.matchAll(/```(?:go|golang)\s*\n(?:\/\/ ([^\n]+\.go)\n)?([\s\S]*?)```/g)]
+      // Only extract from trusted code-producing agents
+      if (!CODE_AGENTS.includes(agentId)) return
+      // Extract code blocks — look for filename in comment before block
+      const matches = [...output.matchAll(/```(?:go|golang)[^\n]*\n([\s\S]*?)```/g)]
       matches.forEach(function(m) {
-        const path    = m[1] || (agentId === 'codegen' ? 'main.go' : agentId + '.go')
-        const content = m[2]
-        if (content && content.trim().length > 20) {
-          // Deduplicate by path
-          const existing = files.findIndex(function(f) { return f.path === path })
-          if (existing >= 0) files[existing] = { path, content, agentId }
-          else files.push({ path, content, agentId })
+        const blockContent = m[1] || ''
+        if (blockContent.trim().length < 10) return
+        // Try to get filename from comment just before the block
+        const beforeBlock = output.slice(0, output.indexOf(m[0]))
+        const filenameMatch = beforeBlock.match(/[`\s]([a-zA-Z0-9_/]+\.go)[`\s]*\s*$/)
+        const commentMatch  = blockContent.match(/^\/\/ ([a-zA-Z0-9_/]+\.go)\n/)
+        const path = (commentMatch && commentMatch[1]) ||
+                     (filenameMatch && filenameMatch[1]) ||
+                     (agentId === 'codegen' ? 'main.go' : agentId + '.go')
+
+        // Strict validation — must be valid Go
+        if (!isValidGoFile(blockContent)) {
+          console.log('SKIP invalid Go:', path, '|', blockContent.trim().slice(0,60))
+          return
         }
+        console.log('VALID file:', path, '| first line:', blockContent.trim().split('\n')[0].slice(0,60))
+        const existing = files.findIndex(function(f) { return f.path === path })
+        if (existing >= 0) files[existing] = { path, content: blockContent, agentId }
+        else files.push({ path, content: blockContent, agentId })
       })
     })
-    return files
+    // Final nuclear filter — remove ANY file where first real line isn't package
+    const clean = files.filter(function(f) {
+      if (!f.path.endsWith('.go')) return true
+      const firstReal = f.content.trim().split('\n').find(function(l) {
+        const t = l.trim()
+        return t.length > 0 && !t.startsWith('//')
+      }) || ''
+      if (!firstReal.startsWith('package ')) {
+        console.log('NUCLEAR FILTER removed:', f.path, '|', firstReal.slice(0,60))
+        return false
+      }
+      return true
+    })
+    console.log('Files after nuclear filter:', clean.map(function(f){return f.path}).join(', '))
+    return clean
   }
 
   async function checkDocker() {
@@ -63,6 +107,7 @@ export default function ExecutorPanel({ agentOutputs, sessionId, onResult }) {
   }
 
   async function runExecution(filesToRun, retries) {
+    setCurrentFiles(filesToRun)
     setRunning(true)
     setResult(null)
     setError('')
@@ -203,7 +248,19 @@ export default function ExecutorPanel({ agentOutputs, sessionId, onResult }) {
             </div>
           )}
 
-          {result.success && (
+          {/* AutoFixer — shown when build or tests fail */}
+      {result && !result.success && (
+        <AutoFixer
+          files={currentFiles || files}
+          errorOutput={result.steps ? result.steps.filter(function(s) { return s.exitCode !== 0 }).map(function(s) { return s.stderr || s.stdout || '' }).join('\n') : ''}
+          sessionId={sessionId}
+          onFixed={function(fixedFiles, attempt) {
+            setRetryCount(attempt)
+            runExecution(fixedFiles, attempt)
+          }}
+        />
+      )}
+      {result.success && (
             <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(0,255,136,.05)', border: '1px solid rgba(0,255,136,.2)', fontSize: 10, color: '#00ff88' }}>
               ✓ All tests passing — ready for human approval
             </div>

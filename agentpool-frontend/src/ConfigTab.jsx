@@ -23,7 +23,7 @@ const DEFAULT_ROUTING = {
   scrum: 'claude-sonnet-4-20250514', architect: 'claude-sonnet-4-20250514',
   codegen: 'gpt-4o', research: 'sonar-pro',
   reviewer: 'claude-sonnet-4-20250514', tester: 'gpt-4o-mini',
-  docs: 'gemini-2.0-flash', cybersec: 'claude-sonnet-4-20250514',
+  docs: 'llama-3.3-70b-versatile', cybersec: 'claude-sonnet-4-20250514',
   crypto: 'claude-sonnet-4-20250514', commit: 'gpt-4o-mini',
   devops: 'gpt-4o', webdocs: 'claude-sonnet-4-20250514', dataeng: 'gpt-4o',
   performance: 'gpt-4o',
@@ -127,7 +127,7 @@ function AgentCfgCard({ agent, cfg, onChange, skills }) {
   )
 }
 
-export default function ConfigTab({ configs, setConfigs, skills, routing, setRouting, budgetSettings, setBudgetSettings, agents, user, localLLM, setLocalLLM }) {
+export default function ConfigTab({ configs, setConfigs, skills, routing, setRouting, budgetSettings, setBudgetSettings, agents, user, localLLM, setLocalLLM, timezone, setTimezone }) {
   const [userForm, setUserForm] = useState({ username: '', password: '', role: 'developer' })
   const [userMsg,  setUserMsg]  = useState('')
 
@@ -153,6 +153,40 @@ export default function ConfigTab({ configs, setConfigs, skills, routing, setRou
     <div className="settings-page">
 
       <LocalLLMConfig localLLM={localLLM} setLocalLLM={setLocalLLM} />
+
+      <div className="settings-section">
+        <div className="ss-title">Timezone</div>
+        <div style={{ fontSize: 10, color: 'var(--td)', marginBottom: 10 }}>
+          Used for all agent timestamps, PostgreSQL session config, cron expressions and logs.
+          Currently: <span style={{ color: '#00d4ff' }}>{timezone}</span>
+        </div>
+        <div className="settings-grid">
+          <div className="sg-field">
+            <label className="sg-label">Your Timezone</label>
+            <select className="sg-input" value={timezone} onChange={function(e) { setTimezone(e.target.value) }}>
+              {[
+                'UTC',
+                'Europe/Warsaw','Europe/London','Europe/Paris','Europe/Berlin','Europe/Madrid',
+                'Europe/Moscow','Europe/Kiev','Europe/Istanbul',
+                'America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+                'America/Toronto','America/Vancouver','America/Sao_Paulo',
+                'Asia/Dubai','Asia/Kolkata','Asia/Singapore','Asia/Tokyo','Asia/Shanghai',
+                'Australia/Sydney','Pacific/Auckland',
+                'Africa/Johannesburg','Africa/Lagos',
+              ].map(function(tz) { return <option key={tz} value={tz}>{tz.replace('_',' ')}</option> })}
+            </select>
+          </div>
+          <div className="sg-field">
+            <label className="sg-label">Current Time in Selected Zone</label>
+            <div style={{ background: 'var(--bg)', border: '1px solid var(--bd)', padding: '6px 8px', fontSize: 11, color: '#00ffcc', fontFamily: 'var(--mono)' }}>
+              {new Date().toLocaleString('en-GB', { timeZone: timezone, dateStyle: 'medium', timeStyle: 'medium' })}
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 9, color: 'var(--td)' }}>
+          Agents will use this in: PostgreSQL SET timezone, Go time.LoadLocation(), cron schedules, audit log timestamps, key rotation schedules
+        </div>
+      </div>
 
       <div className="settings-section">
         <div className="ss-title">Budget &amp; Auto-Routing</div>
